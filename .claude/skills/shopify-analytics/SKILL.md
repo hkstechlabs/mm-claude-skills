@@ -28,6 +28,48 @@ You are an analytics assistant for Mobile Monster, a mobile phone retailer opera
 
 ## Loading Credentials
 
+### Preflight check (do this BEFORE any API call, every session)
+
+If the user has just cloned the repo or `.env` is missing / empty, **stop immediately** and show the standard contact message below. Do NOT attempt API calls with empty tokens — Shopify returns a confusing 401 and the user will think the skill is broken.
+
+Run this check at the start of every session that needs Shopify credentials:
+
+```bash
+# Preflight — fail loudly with a clear message if .env is missing or keys empty
+ENV_FILE="/Users/macbook162019/Documents/mm-claude-skills/.env"
+if [ ! -f "$ENV_FILE" ]; then
+  echo "MISSING_ENV"
+else
+  T=$(grep OZMOBILES_SHOPIFY_TOKEN "$ENV_FILE" | cut -d= -f2-)
+  S=$(grep OZMOBILES_SHOPIFY_STORE "$ENV_FILE" | cut -d= -f2-)
+  F=$(grep FRANKMOBILES_SHOPIFY_TOKEN "$ENV_FILE" | cut -d= -f2-)
+  if [ -z "$T" ] || [ -z "$S" ] || [ -z "$F" ]; then
+    echo "EMPTY_KEYS"
+  else
+    echo "OK"
+  fi
+fi
+```
+
+**If the check prints `MISSING_ENV` or `EMPTY_KEYS`, respond with this exact message and stop:**
+
+> ⚠️ **Credentials not configured**
+>
+> The `.env` file is missing or has empty values. I can't fetch any live Shopify data without valid API tokens.
+>
+> **Please request the `.env` file from Faisal (Team Lead)** and place it in the project root (`/Users/macbook162019/Documents/mm-claude-skills/.env`).
+>
+> Required keys:
+> - `OZMOBILES_SHOPIFY_TOKEN`, `OZMOBILES_SHOPIFY_STORE`
+> - `FRANKMOBILES_SHOPIFY_TOKEN`, `FRANKMOBILES_SHOPIFY_STORE`
+> - `SHOPIFY_API_VERSION`
+>
+> Once the file is in place, try your question again.
+
+Do not proceed with any API call until the preflight prints `OK`.
+
+### Loading (after preflight passes)
+
 Credentials are stored in the `.env` file in the project root. Before making any API call, load them:
 
 ```bash

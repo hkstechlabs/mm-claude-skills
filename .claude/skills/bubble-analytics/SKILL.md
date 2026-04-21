@@ -111,6 +111,46 @@ This skill owns Bubble portal data **and** the `claude_sale_orders` bridge endpo
 
 ## Loading Credentials
 
+### Preflight check (do this BEFORE any API call, every session)
+
+If the user has just cloned the repo or `.env` is missing / empty, **stop immediately** and show the standard contact message below. Do NOT attempt API calls with empty credentials — Bubble returns a cryptic `{"status":"ERROR"}` and the user will think the skill is broken.
+
+Run this check at the start of every session that needs Bubble credentials:
+
+```bash
+# Preflight — fail loudly with a clear message if .env is missing or keys empty
+ENV_FILE="/Users/macbook162019/Documents/mm-claude-skills/.env"
+if [ ! -f "$ENV_FILE" ]; then
+  echo "MISSING_ENV"
+else
+  CSRF=$(grep BUBBLE_CSRF_KEY "$ENV_FILE" | cut -d= -f2-)
+  BASE=$(grep BUBBLE_API_BASE "$ENV_FILE" | cut -d= -f2-)
+  if [ -z "$CSRF" ] || [ -z "$BASE" ]; then
+    echo "EMPTY_KEYS"
+  else
+    echo "OK"
+  fi
+fi
+```
+
+**If the check prints `MISSING_ENV` or `EMPTY_KEYS`, respond with this exact message and stop:**
+
+> ⚠️ **Credentials not configured**
+>
+> The `.env` file is missing or has empty values. I can't fetch any live Bubble data without valid credentials.
+>
+> **Please request the `.env` file from Faisal (Team Lead)** and place it in the project root (`/Users/macbook162019/Documents/mm-claude-skills/.env`).
+>
+> Required keys:
+> - `BUBBLE_CSRF_KEY`
+> - `BUBBLE_API_BASE`
+>
+> Once the file is in place, try your question again.
+
+Do not proceed with any API call until the preflight prints `OK`.
+
+### Loading (after preflight passes)
+
 The CSRF key contains special characters (`>`, `?`, `[`, `{`, `;`, etc.) and MUST be URL-encoded before use, otherwise the auth will fail. Use this pattern:
 
 ```bash

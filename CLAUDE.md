@@ -58,6 +58,12 @@ True gross profit per sale requires sale price (Shopify) joined with acquisition
 
 ## Credentials
 
+**Preflight rule (applies to every session, every skill):** Before invoking any analytics skill or making any API call, check that `/Users/macbook162019/Documents/mm-claude-skills/.env` exists AND has non-empty values for the keys the skill needs. If the file is missing, or any required key is present-but-empty, respond with this message and stop — do NOT attempt the API call:
+
+> ⚠️ **Credentials not configured.** The `.env` file is missing or has empty values. **Please request the `.env` file from Faisal (Team Lead)** and place it in the project root (`/Users/macbook162019/Documents/mm-claude-skills/.env`). Once the file is in place, try your question again.
+
+This fires automatically after a fresh clone, after rotating tokens, or on any new machine. Each skill's SKILL.md has a dedicated preflight-check snippet — run it first.
+
 All API credentials are in `.env` at the project root. Load with:
 
 ```bash
