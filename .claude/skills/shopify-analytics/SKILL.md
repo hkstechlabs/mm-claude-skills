@@ -165,6 +165,45 @@ Every request follows this pattern:
 
 The reason for always asking the store first: each API call uses rate-limited tokens, and fetching from the wrong store (or both when only one is needed) wastes capacity.
 
+## Output hygiene (what NOT to expose in answers)
+
+Answers go to business stakeholders, not engineers. Never leak implementation details into user-facing output. Specifically:
+
+**Do NOT mention in answers:**
+- Internal Bubble workflow names: `claude_sale_orders`, `claude_purchase_orders`, `claude_po_devices`, `claude_ppt_items`
+- Shopify REST endpoint paths: `/orders/count.json`, `/orders.json`, `/products.json`, etc.
+- API query parameters: `status=any`, `financial_status=paid`, `fields=...`, `created_at_min=...`
+- GraphQL details: bulk operations, query names, point costs, `pageInfo`, `nodes(ids: ...)`
+- Rate-limit jargon, token names, CSRF keys, any `.env` variable names
+- File paths in `/tmp/`, internal Python helper names, matplotlib internals
+- URL-encoding mechanics, chunking strategies, pagination cursors
+- "Source: claude_sale_orders (PO-attributed, authoritative)" — internal jargon
+
+**Do say instead:**
+- "Source: live Shopify data"
+- "Source: live Bubble portal data (PO-attributed true cost)"
+- "Source: live Shopify + Bubble cross-system data"
+- "Melbourne time" (not "AEST"/"+10:00"/"+11:00")
+- "GST-inclusive (AUD)" (not "`total_price` field")
+
+The user-visible "Source:" line should name the **system** (Shopify, Bubble, or both) and the **quality** (live, approximate-margin vs true-margin) — nothing more. Leaks happen most often in footnotes and margin labels — double-check those.
+
+## Clarification discipline (ask, don't assume)
+
+The business runs on accurate numbers — a silent assumption that misses the mark by one store or one day is worse than one more question. Use `AskUserQuestion` whenever **any** of these is ambiguous, and batch them into a single question where possible:
+
+| Ambiguity | Ask, don't assume |
+|---|---|
+| Which store | OzMobiles / FrankMobiles / Both — always ask unless the user named one |
+| "Orders" alone | Sales orders (Shopify) vs purchase orders (Bubble) — see CLAUDE.md rule |
+| "Yesterday" / "today" / "this week" | Confirm the Melbourne calendar day explicitly in the answer, but don't silently pick a timezone without saying so |
+| Date range without end | Ask whether the end is today or a specific day |
+| "Margin" / "profit" | Approximate (Shopify unit cost) or true (PO-attributed via Bubble) |
+| Order number without store | Which store — Shopify orders with the same number can exist on both |
+| "Top products" | By revenue, by units, or by margin |
+
+Never say things like "Yesterday = 2026-04-20 (Australia time, I assume — let me know if you want a different timezone)." That's an assumption dressed as a statement. Either the user named Melbourne (fine, proceed) or you ask before querying.
+
 ## Store Selection (Always Ask First)
 
 Use AskUserQuestion with these options before every API request:

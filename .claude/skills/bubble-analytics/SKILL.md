@@ -53,6 +53,43 @@ The ONLY time to ask the user before answering is when the request is **ambiguou
 
 In all other cases: fetch → filter → answer. No permission-seeking, no "let me check".
 
+## Output hygiene (what NOT to expose in answers)
+
+Answers go to business stakeholders, not engineers. Never leak implementation details into user-facing output. Specifically:
+
+**Do NOT mention in answers:**
+- Internal Bubble workflow names: `claude_sale_orders`, `claude_purchase_orders`, `claude_po_devices`, `claude_ppt_items`, `wf/...`
+- API endpoint paths, CSRF keys, `BUBBLE_CSRF_KEY`, `BUBBLE_API_BASE`, URL-encoding mechanics
+- Shopify REST paths or GraphQL query names (applies to cross-system answers too)
+- Query parameters: `startDate=...`, `endDate=...`, `poId=...`, `status=Listed`, `financial_status=paid`
+- Internal field names: `orderdate`, `podevices`, `allocated_podevices`, `costPrice`, `estsaleprice`, `totalcostprice`, `variant_price`
+- Chunking / pagination internals, rate limits, `.env` variable names, file paths
+- "Source: claude_sale_orders (PO-attributed, authoritative)" — internal jargon
+
+**Do say instead:**
+- "Source: live Bubble portal data"
+- "Source: live Bubble portal data (PO-attributed true cost)" for cross-system answers
+- "Melbourne time" (not "AEST" / "UTC+10" / "UTC+11")
+- Grade names (Brand New, As New, Working, Faulty, Dead) — these are user-facing
+- PO IDs (e.g. `M-291714`) — user-facing identifiers, safe to show
+
+The user-visible "Source:" line should name the **system** and the **quality** — nothing more. Leaks happen most often in footnotes, "source" lines, and internal column labels — double-check those.
+
+## Clarification discipline (ask, don't assume)
+
+Use `AskUserQuestion` whenever any of these is ambiguous; batch multiple asks into one tool call:
+
+| Ambiguity | Ask, don't assume |
+|---|---|
+| Storage missing on a Phone/Tablet/Laptop | Ask — the price varies per capacity |
+| Grade missing | Ask — Brand New / As New / Working / Faulty / Dead |
+| Watch size missing (Smart Watch) | Ask |
+| Order number without store (cross-system profit) | Ask OzMobiles or FrankMobiles |
+| "Margin" / "profit" on a sale | Default to true (PO-attributed) — but confirm if the user already asked the other skill for approximate |
+| Date range without end | Ask whether the end is today or a specific day |
+
+Never say things like "Yesterday = 2026-04-20 (Australia time, I assume — let me know if you want a different timezone)." That's an assumption dressed as a statement. Either the user named Melbourne (fine, proceed) or you ask before querying.
+
 ## Privacy: Never expose customer personal data
 
 The purchase orders endpoint returns seller PII that must **never** appear in any response to the user. The user wants **aggregate insights and device data**, not a list of named customers.
