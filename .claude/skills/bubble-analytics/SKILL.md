@@ -53,6 +53,69 @@ The ONLY time to ask the user before answering is when the request is **ambiguou
 
 In all other cases: fetch → filter → answer. No permission-seeking, no "let me check".
 
+## Accuracy checklist — run BEFORE writing any answer
+
+Claude must silently verify each of these before presenting a number. If any fails, fix it before answering.
+
+1. **Melbourne-day aligned** — date range built via `ZoneInfo("Australia/Melbourne")`; client-side filtered by Melbourne calendar day after the UTC-window fetch.
+2. **Partial period flagged** — if the period ends at today's Melbourne moment, the answer says "partial day / N hours so far" and does NOT extrapolate.
+3. **M-prefix filter applied** (purchase orders) — only records with `podeviceidprefix == "M-"` counted. Non-M-prefix records must be excluded and flagged.
+4. **Cost-source precedence honoured** (sale orders / profit) — in order: `allocated_podevices[].costPrice` → Shopify variant `unitCost` fallback → if neither, mark "untracked" and exclude from margin aggregate. Never average across sources; never substitute zero.
+5. **Zero-cost trap checked** — any line with `costPrice == 0` or null is reported separately, never folded into "margin %". It inflates margin to 100% which is nonsense.
+6. **qty × costPrice independence** — cost is the SUM of allocated_podevices' costPrices, **not** `cost × quantity`. Each allocated device has its own costPrice.
+7. **Order-level discount subtracted once** — applied against revenue at the order level; never per-line and never twice.
+8. **Revenue basis is labelled** — merch (line_items sum) vs customer-paid (total_order_value). Margin is computed against merch, not customer-paid — customer-paid includes shipping.
+9. **Coverage disclosed** — "X of Y lines have PO-attributed cost; Z untracked". Always show both the tracked subset margin AND the overall coverage.
+10. **Chunked-fetch completion** — every chunk returned successfully. If any chunk failed, the answer is partial and must say so.
+
+If the answer can't pass all checks with the available data, say so — "I can only answer this for the tracked subset ({n} of {total} lines). For a full answer I'd need …" — rather than shipping a misleading number.
+
+## Canonical answer templates
+
+**Price lookup (PPT):**
+```
+Apple iPhone {model} {storage} — {Grade} grade: ${price:,.0f} AUD
+
+Source: live Bubble portal data
+```
+One line. No jargon. If multiple grades requested, a small 2-column table.
+
+**Purchase orders report:**
+```
+## Purchase Orders — {Period} (Melbourne)
+{Headline: total POs, total device count}
+
+| Metric | Value |
+|---|---|
+| Purchase orders | {n} |
+| Devices (across all POs) | {d} |
+| Average per PO | {avg:.1f} |
+| By delivery method | ... |
+
+**Source:** live Bubble portal data
+**Caveats:** {filter notes, excluded non-M records, partial day}
+```
+
+**True-profit report (cross-system):**
+```
+## True Gross Profit — {Store} · {Period} (Melbourne)
+{Headline: net profit + margin on tracked lines}
+
+| Metric | Value (AUD, GST-incl) |
+|---|---|
+| Merch revenue (tracked lines) | ${r:,.2f} |
+| PO-attributed cost | ${c:,.2f} |
+| Gross profit | ${p:,.2f} |
+| Margin % | {m:.1f}% |
+| Coverage | {tracked}/{total} lines ({pct:.1f}%) |
+| Untracked lines | {u} (accessories / new stock / unallocated) |
+
+**Source:** live Bubble portal data (PO-attributed true cost) + live Shopify data
+**Caveats:** {coverage, zero-cost exclusions, partial period}
+```
+
+Keep the language plain-business. No internal workflow names, no endpoint paths, no Python/JSON jargon.
+
 ## Output hygiene (what NOT to expose in answers)
 
 Answers go to business stakeholders, not engineers. Never leak implementation details into user-facing output. Specifically:

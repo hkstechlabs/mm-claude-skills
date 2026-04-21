@@ -165,6 +165,50 @@ Every request follows this pattern:
 
 The reason for always asking the store first: each API call uses rate-limited tokens, and fetching from the wrong store (or both when only one is needed) wastes capacity.
 
+## Accuracy checklist — run BEFORE writing any answer
+
+Claude must silently verify each of these before presenting a number. If any check fails, fix it — don't ship the answer. This is non-negotiable; accuracy beats speed.
+
+1. **Store is named** — OzMobiles, FrankMobiles, or Both — and the API call used that store's credentials.
+2. **Time range is Melbourne** — all `created_at_min` / `created_at_max` were built via `ZoneInfo("Australia/Melbourne")`, never a hardcoded offset. Upper bound is exclusive (`<`), not inclusive.
+3. **Partial period flagged** — if the period end ≥ current Melbourne moment (e.g., "today"), the answer explicitly says "partial day / N hours so far" and does NOT extrapolate.
+4. **Exclusions applied** — `test=true` removed, voided orders removed, refunded orders handled per the question (include vs exclude).
+5. **Revenue basis is labelled** — say exactly which number is shown: merch (subtotal) vs customer-paid (total) vs net-of-refunds. Default to **merch** for AOV and margin; **customer-paid** for cash-in.
+6. **GST treatment is labelled** — GST-inclusive by default; if the user asked for ex-GST, the merch was divided by 1.10 and the label says "ex-GST".
+7. **Coverage is disclosed** — for margin/profit answers, say what % of lines had cost data. Missing `unitCost` lines are excluded from margin and reported as "N untracked lines — not included in margin".
+8. **Cross-check the total** — rough sanity: `customer_paid ≈ merch + shipping − discounts_netted_already + total_tax`? If it doesn't reconcile to within $1, investigate before reporting.
+9. **Pagination closed** — if `orders/count` > 250, confirm all pages were fetched. If you got exactly 250 and didn't paginate, the answer is wrong — stop.
+10. **Refund date handled** — refunds in the period were attributed by `processed_at`, not the order's `created_at`.
+
+If more than one check fails, the answer isn't accurate enough to send. Re-fetch or escalate with a clear "I can't answer this accurately because …".
+
+## Canonical answer template
+
+Every non-trivial analytics answer follows this shape. Skip sections that don't apply — write "N/A" instead of silently omitting.
+
+```
+## {Store} — {Period} {sales / revenue / margin / …}
+{One-sentence headline with the single most important number.}
+
+| Metric | Value |
+|---|---|
+| Orders | {n} ({paid} paid, {refunded} refunded, {test} test excluded) |
+| Merch revenue (GST-incl, AUD) | ${merch:,.2f} |
+| Customer-paid total | ${total:,.2f} |
+| Shipping (pass-through) | ${ship:,.2f} |
+| Discounts | -${disc:,.2f} |
+| Refunds (period) | -${refund:,.2f} |
+| GST component (inside merch) | ${gst:,.2f} |
+| AOV | ${aov:,.2f} |
+
+{Margin block if asked — label source clearly: "approximate" vs "true".}
+
+**Source:** live Shopify data · Melbourne time {period}
+**Caveats:** {coverage %, partial-period flag, excluded lines, data-quality notes}
+```
+
+Keep the language plain-business. No internal endpoint names, no query params, no Python/GraphQL jargon.
+
 ## Output hygiene (what NOT to expose in answers)
 
 Answers go to business stakeholders, not engineers. Never leak implementation details into user-facing output. Specifically:
