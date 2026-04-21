@@ -1,0 +1,35 @@
+{
+  "skill_name": "shopify-analytics",
+  "evals": [
+    {
+      "id": 0,
+      "prompt": "How much revenue did we make today?",
+      "expected_output": "Should ask which store first via AskUserQuestion, then fetch today's orders with date filter, calculate total revenue, order count, and AOV, present in a clean table with AUD formatting",
+      "files": []
+    },
+    {
+      "id": 1,
+      "prompt": "Show me top 5 selling products this month with profit margins",
+      "expected_output": "Should ask which store, use GraphQL to get orders with line items and unit cost, aggregate by product, calculate profit margin %, show a table AND a chart (horizontal bar), present top 5 ranked by revenue",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "Compare this week vs last week for both stores",
+      "expected_output": "Should fetch data from both OzMobiles and FrankMobiles for this week and last week, show side-by-side comparison table with % change arrows, generate a grouped bar chart",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "Check stock levels for iPhone 15 Pro Max across all locations",
+      "expected_output": "Should ask which store, search products by title, then use GraphQL to get on_hand/committed/available/reserved per location, present in a location breakdown table",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "How many refunds this month and what's the refund rate?",
+      "expected_output": "Should ask which store, fetch refunded orders count and total orders count for the month, calculate refund rate %, total refund amount, present summary table",
+      "files": []
+    }
+  ]
+}

@@ -1,0 +1,2 @@
+# Copy .env into worktrees so API tokens are available
+.env

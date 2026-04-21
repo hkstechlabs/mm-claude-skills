@@ -1,0 +1,17 @@
+# Credentials
+.env
+.env.*
+
+# Local settings (gitignored by convention)
+.claude/settings.local.json
+
+# Workspace/eval output
+shopify-analytics-workspace/
+*.skill
+
+# OS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc

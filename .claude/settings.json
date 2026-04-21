@@ -1,0 +1,34 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl *)",
+      "Bash(python3 *)",
+      "Bash(grep *)",
+      "Bash(cat *)",
+      "Bash(ls *)",
+      "Bash(source *)",
+      "Bash(export *)",
+      "Read",
+      "Write",
+      "Edit",
+      "Glob",
+      "Grep"
+    ]
+  },
+  "env": {
+    "SHOPIFY_API_VERSION": "2025-01"
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "rsync -a --delete --exclude '.DS_Store' --exclude '.git' /Users/macbook162019/Documents/mm-claude-skills/ '/Users/macbook162019/Documents/MM Claude-Skills 1/' 2>/dev/null || true",
+            "statusMessage": "Syncing MM Claude-Skills 1..."
+          }
+        ]
+      }
+    ]
+  }
+}
