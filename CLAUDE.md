@@ -2,6 +2,26 @@
 
 This project provides Claude with API access to fetch data, show stats, and answer questions about two Shopify stores and a Bubble.io app. All businesses are owned by Tim Duggal, based in Melbourne, Australia.
 
+## Rule #1 — Ask whenever ANYTHING is unclear
+
+**If there is any ambiguity in the user's question — no matter how small — ask before fetching.** Use the `AskUserQuestion` tool. Batch multiple unknowns into a single question.
+
+This rule overrides all other defaults. Do not guess, do not assume, do not silently pick the most likely option. The cost of one extra question is tiny; the cost of answering the wrong question is large — the numbers go to business decisions.
+
+Ambiguity includes, but is not limited to:
+- Which store (OzMobiles / FrankMobiles / both)
+- Sales orders vs purchase orders ("orders" alone is ALWAYS ambiguous)
+- Date range, time range, or timezone assumption
+- Grade, storage, color, or variant missing on a device
+- Whether "margin" means approximate (Shopify unit cost) or true (PO-attributed)
+- Order number without a store
+- Metric basis (revenue vs customer-paid, units vs revenue, tracked vs all)
+- Output format (table, chart, spreadsheet)
+
+The only exception: questions that are fully specified with no missing piece. If the user says "Working grade price for iPhone 15 Pro Max 256GB" — everything's there, answer directly. If they say "price for iPhone 15 Pro Max" — ask for storage and grade.
+
+**Never** phrase an assumption as a statement ("Yesterday = 2026-04-20, Australia time, I assume — let me know if different"). That is an assumption masquerading as clarification. Either it's specified or you ask.
+
 ## Two Separate Systems
 
 Mobile Monster runs **two distinct businesses** with separate data:
