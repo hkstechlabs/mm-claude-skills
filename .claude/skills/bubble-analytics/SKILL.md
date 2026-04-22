@@ -79,9 +79,12 @@ Claude must silently verify each of these before presenting a number. If any fai
 5. **Zero-cost trap checked** — any line with `costPrice == 0` or null is reported separately, never folded into "margin %". It inflates margin to 100% which is nonsense.
 6. **qty × costPrice independence** — cost is the SUM of allocated_podevices' costPrices, **not** `cost × quantity`. Each allocated device has its own costPrice.
 7. **Order-level discount subtracted once** — applied against revenue at the order level; never per-line and never twice.
-8. **Revenue basis is labelled** — merch (line_items sum) vs customer-paid (total_order_value). Margin is computed against merch, not customer-paid — customer-paid includes shipping.
+8. **Revenue basis is labelled** — for true-profit reports the basis is `total_order_value` (customer-paid, incl. shipping & GST — Dale's definition). Do NOT substitute merch-only.
 9. **Coverage disclosed** — "X of Y lines have PO-attributed cost; Z untracked". Always show both the tracked subset margin AND the overall coverage.
 10. **Chunked-fetch completion** — every chunk returned successfully. If any chunk failed, the answer is partial and must say so.
+11. **Payment fees deducted** (true-profit reports) — each order enriched from Shopify with `paymentGatewayNames`; fee computed via `GATEWAY_FEES` table; unknown gateways flagged, not silently zeroed.
+12. **Refunds handled** — each order enriched with `totalRefundedSet`. Partial refund → subtracted from profit, order stays in. Full refund / `cancelledAt` not null → excluded from profit totals AND surfaced in a separate "Returned / Cancelled" block so nothing looks missing.
+13. **Test cases pass** — on any change to the profit calc, Orders #319761 → $296.84 and #318871 → $106.43 must still reconcile to the cent.
 
 If the answer can't pass all checks with the available data, say so — "I can only answer this for the tracked subset ({n} of {total} lines). For a full answer I'd need …" — rather than shipping a misleading number.
 
@@ -111,23 +114,46 @@ One line. No jargon. If multiple grades requested, a small 2-column table.
 **Caveats:** {filter notes, excluded non-M records, partial day}
 ```
 
-**True-profit report (cross-system):**
+**True-profit report (cross-system, Dale's canonical format):**
 ```
-## True Gross Profit — {Store} · {Period} (Melbourne)
-{Headline: net profit + margin on tracked lines}
+## True Profit — {Store} · {Period} (Melbourne)
+{Headline: net profit after fees & refunds}
 
 | Metric | Value (AUD, GST-incl) |
 |---|---|
-| Merch revenue (tracked lines) | ${r:,.2f} |
-| PO-attributed cost | ${c:,.2f} |
-| Gross profit | ${p:,.2f} |
-| Margin % | {m:.1f}% |
-| Coverage | {tracked}/{total} lines ({pct:.1f}%) |
-| Untracked lines | {u} (accessories / new stock / unallocated) |
+| Sale total (incl. shipping, post-discount) | ${sale:,.2f} |
+| Discount | -${disc:,.2f} |
+| Refunds (partial) | -${refund:,.2f} |
+| PO / variant cost | -${cost:,.2f} |
+| Payment fees | -${fee:,.2f} |
+| **True profit** | **${profit:,.2f}** |
+| Margin % (profit / sale total) | {m:.1f}% |
+
+### Fee breakdown by gateway
+| Gateway | Orders | Sale total | Fee |
+|---|---|---|---|
+| Shopify Payments | … | … | … |
+| PayPal | … | … | … |
+| Afterpay | … | … | … |
+| Zip | … | … | … |
+
+### Excluded from profit (surfaced for reconciliation)
+| Reason | Orders | Sale value |
+|---|---|---|
+| Cancelled | {n} | ${v:,.2f} |
+| Fully refunded | {n} | ${v:,.2f} |
+
+### Coverage
+- Tracked cost lines: {tracked}/{total} ({pct:.1f}%)
+- Untracked lines: {u} (accessories / new stock / unallocated) — Shopify variant cost fallback applied where available
+- Unknown-gateway orders: {n} (excluded from fee total, flagged below)
 
 **Source:** live Bubble portal data (PO-attributed true cost) + live Shopify data
-**Caveats:** {coverage, zero-cost exclusions, partial period}
+**Caveats:** {coverage, zero-cost exclusions, partial period, unknown gateways if any}
 ```
+
+**Why profit is divided by sale total (not merch revenue):**
+Per Dale, the business view of margin is *"what we actually kept out of what the customer paid"* — so the denominator is the full `total_order_value` (customer-paid, incl. shipping & GST). This is consistent with how he evaluates individual orders (test case #319761: $296.84 / $1,284.70 ≈ 23.1%).
 
 Keep the language plain-business. No internal workflow names, no endpoint paths, no Python/JSON jargon.
 
@@ -1151,26 +1177,20 @@ No client-side safety filter needed — server-side filtering is authoritative.
 
 ### Cost-source precedence
 
-Resolve cost per line item in this order:
+**For TRUE PROFIT (Dale's canonical view — the default for every profit question):**
 
-1. **PO devices present** (primary, ~all refurbished sales) → `line_cost = sum(d["costPrice"] for d in allocated_podevices)`. All fields are in the response — no additional call needed. Applies to Phones, Tablets, Laptops, Smart Watches, AirPods.
-2. **No PO devices** (accessories, screen protectors, installations, glass, new-stock items) → fall back to Shopify variant `unitCost × quantity`. Batch all such `variant_id`s into one GraphQL call per store. See the Shopify skill's "Variant cost batch lookup" section.
-3. **Neither available** (rare) → `line_cost = None`, report margin as N/A. **Never assume 100% margin.**
+1. **PO devices present** → `line_cost = sum(d["costPrice"] for d in allocated_podevices)`. Applies to Phones, Tablets, Laptops, Smart Watches, AirPods.
+2. **No PO devices** (accessories, warranty, shipping add-ons, cables, screen protectors, installations) → **`line_cost = 0`**. These items flow through as pure margin — no fallback. Dale's rule: the business doesn't break out accessory cost on the profit line.
 
 ```python
-def line_cost(line_item: dict, shopify_variant_cost: dict[str, float]) -> float | None:
-    """Return total cost (NOT per-unit) for one sale-order line, or None if unknown.
-    shopify_variant_cost: {variant_id: unitCost} — only needed when allocated_podevices is empty.
-    """
+def line_cost(line_item: dict) -> float:
+    """Total cost for one sale-order line under Dale's true-profit rule.
+    PO-device sum; 0 if no allocated PO device."""
     allocated = line_item.get("allocated_podevices") or []
-    if allocated:
-        return sum(d.get("costPrice", 0) or 0 for d in allocated)
-    vid = str(line_item.get("variant_id", ""))
-    unit = shopify_variant_cost.get(vid)
-    return (unit * line_item.get("quantity", 0)) if unit is not None else None
+    return sum(float(d.get("costPrice", 0) or 0) for d in allocated)
 ```
 
-**Store disambiguation for fallback:** if you called `claude_sale_orders` with `store=OzMobiles` or `store=Frank`, you already know which Shopify store to query for the variant-cost fallback — use that store only. If you called without `store` (combined view), query both Shopify stores in parallel and merge the `{variant_id: unitCost}` maps (variant IDs do not overlap across stores). **Always prefer passing `store` upfront** — it makes the fallback lookup single-store and avoids extra API calls.
+**For APPROXIMATE / Shopify-only margin** (legacy view, used only when the user explicitly asks for "approximate margin" or is scoped to Shopify with no cross-system ask): the variant `unitCost × quantity` fallback applies. See `shopify-analytics` SKILL.md "Profit metrics" table. **Never** blend the two views in one number, and never use variant unitCost as a fallback inside a true-profit report.
 
 ### Join keys across systems
 
@@ -1183,33 +1203,184 @@ def line_cost(line_item: dict, shopify_variant_cost: dict[str, float]) -> float 
 
 ### True-profit calculation (per order / per period)
 
+**Canonical formula (Dale's authoritative definition, 2026-04-22):**
+
+```
+True Profit = Sale Total − Discount − Refund − PO Cost − Payment Fee
+```
+
+Where:
+- **Sale Total** = `total_order_value` from `claude_sale_orders` (GST-inclusive, shipping-inclusive, discount already deducted). Includes device + warranty + accessories + shipping.
+- **Discount** = already subtracted inside `total_order_value`. Do NOT subtract again.
+- **Refund** = sum of Shopify `refunds[].transactions[].amount` for the order (Melbourne-day processed_at filtering may apply for period reports — see Refunds section).
+- **PO Cost** = `sum(costPrice)` across ALL `allocated_podevices` on ALL line items of the order. **PO-devices ONLY.** Do NOT fall back to Shopify variant `unitCost` for lines with no allocated PO device. **Why:** Dale's business rule (confirmed with live validation of #319761 on 2026-04-22) treats accessories, warranty, cables, glass protectors, shipping, installations etc. as flowing through as margin — not as a cost deduction on the profit line. The variant `unitCost` fallback is retained only for the approximate (Shopify-only) margin view documented in `shopify-analytics`, never for true profit.
+- **Payment Fee** = gateway-specific rate applied to the ORIGINAL `total_order_value` (fee is NOT refunded when a refund is issued — PayPal/Shopify keep the % on the original charge; only the flat portion is reconciled differently by PayPal but client treats it as non-refundable).
+
+**Fully refunded / cancelled orders are excluded from profit totals entirely** — the sale is not valid. But they MUST be surfaced in a separate "Returned / Cancelled" section of the report so the user can reconcile against Shopify admin view. Detection:
+- `cancelled_at` is not null → cancelled
+- `financial_status == 'refunded'` OR refund total ≥ `total_order_value` → fully refunded
+- Otherwise (including `partially_refunded`) → include in profit, subtract partial refund
+
 ```python
-def order_profit(order: dict, variant_costs: dict[str, float]) -> dict:
-    """Compute revenue, cost basis, gross profit for one sale order."""
-    revenue = 0.0
+def order_profit(order: dict, shopify_enrichment: dict) -> dict:
+    """Compute true profit for one sale order using Dale's canonical formula.
+
+    PO-device cost only. No variant-unitCost fallback on profit.
+
+    shopify_enrichment: {
+        'refund_total': float,   # sum of refund transactions, 0 if none
+        'gateway': str,          # primary gateway: 'shopify_payments', 'paypal', 'afterpay', 'zip', ...
+        'cancelled': bool,       # True if cancelled_at is not null
+        'fully_refunded': bool,  # True if financial_status == 'refunded' or refund >= total
+    }
+    """
+    sale_total = float(order.get('total_order_value', 0) or 0)
+    discount = float(order.get('total_discount', 0) or 0)  # already in sale_total — reported only
+    refund = float(shopify_enrichment.get('refund_total', 0) or 0)
+    cancelled = bool(shopify_enrichment.get('cancelled'))
+    fully_refunded = bool(shopify_enrichment.get('fully_refunded')) or refund >= sale_total
+
+    # PO-only cost. Accessories / no-PO lines contribute $0 to cost.
     cost = 0.0
-    untracked_lines = 0
+    po_lines = 0
+    no_po_lines = 0
     for li in order.get('line_items', []):
-        line_revenue = li.get('variant_price', 0) * li.get('quantity', 0)
-        lc = line_cost(li, variant_costs)
-        revenue += line_revenue
-        if lc is None:
-            untracked_lines += 1
+        allocated = li.get('allocated_podevices') or []
+        if allocated:
+            cost += sum(float(d.get('costPrice', 0) or 0) for d in allocated)
+            po_lines += 1
         else:
-            cost += lc
-    # Apply order-level discount proportionally (optional, depending on reporting convention)
-    revenue -= order.get('total_discount', 0)
-    gross = revenue - cost
-    margin_pct = (gross / revenue * 100) if revenue > 0 else None
+            no_po_lines += 1  # flows through as margin per Dale's rule
+
+    # Payment fee (on the ORIGINAL sale, not post-refund)
+    fee = payment_fee(shopify_enrichment.get('gateway'), sale_total)
+
+    excluded = cancelled or fully_refunded
+    profit = None if excluded else round(sale_total - refund - cost - (fee or 0), 2)
+
     return {
         'order_id': order['order_id'],
-        'revenue': round(revenue, 2),
+        'sale_total': round(sale_total, 2),
+        'discount': round(discount, 2),
+        'refund': round(refund, 2),
         'cost': round(cost, 2),
-        'gross_profit': round(gross, 2),
-        'margin_pct': round(margin_pct, 1) if margin_pct is not None else None,
-        'untracked_lines': untracked_lines,
+        'fee': round(fee, 2) if fee is not None else None,
+        'gateway': shopify_enrichment.get('gateway'),
+        'profit': profit,
+        'excluded': excluded,
+        'exclusion_reason': 'cancelled' if cancelled else ('fully_refunded' if fully_refunded else None),
+        'po_lines': po_lines,
+        'pass_through_lines': no_po_lines,
     }
 ```
+
+### Payment fees — gateway rate table
+
+Fee rates (confirmed with Dale 2026-04-22). Update here when rates change; code reads from this table.
+
+| Gateway name (Shopify `payment_gateway_names`) | Rate | Flat | Notes |
+|---|---|---|---|
+| `shopify_payments` | 0.9% | $0.30 | Verified against test case #319761 ($11.86 on $1,284.70) |
+| `paypal` / `paypal_express_checkout` | 1.2% | $0.10 | Verified against test case #318871 ($5.48 on $448). Fee NOT refunded on partial refund. |
+| `afterpay` / `afterpay_australia` | 5.11% | $0.33 | |
+| `zip` / `zippay` / `zipmoney` / `zip - au` | 4.95% | $0.33 | The literal `zip - au` (with spaces and hyphen) was observed in live Shopify `paymentGatewayNames` on 2026-04-19 — keep the alias. |
+
+**Fee basis:** applied to the ORIGINAL `total_order_value` (GST-inclusive, shipping-inclusive). GST is NOT stripped from the fee basis — Dale's explicit rule ("treat cost and sale equally on GST").
+
+**Split-payment orders:** Shopify returns `payment_gateway_names` as an array. Use the **first (primary) gateway** and apply its full rate to the entire `total_order_value`. Never prorate across multiple gateways.
+
+**Unknown gateway:** if the gateway name isn't in the table, do NOT assume — emit `fee = None`, exclude from profit total, and flag the order for manual review.
+
+```python
+GATEWAY_FEES = {
+    'shopify_payments': (0.009, 0.30),
+    'paypal': (0.012, 0.10),
+    'paypal_express_checkout': (0.012, 0.10),
+    'afterpay': (0.0511, 0.33),
+    'afterpay_australia': (0.0511, 0.33),
+    'zip': (0.0495, 0.33),
+    'zippay': (0.0495, 0.33),
+    'zipmoney': (0.0495, 0.33),
+    'zip - au': (0.0495, 0.33),   # observed live in Shopify paymentGatewayNames, 2026-04-22
+}
+
+def payment_fee(gateway: str | None, sale_total: float) -> float | None:
+    """Return the fee for a given gateway and gross sale total, or None if unknown gateway."""
+    if not gateway:
+        return None
+    key = gateway.lower().strip()
+    if key not in GATEWAY_FEES:
+        return None
+    rate, flat = GATEWAY_FEES[key]
+    return round(rate * sale_total + flat, 2)
+```
+
+### Shopify enrichment — required per-order fetch
+
+Bubble's `claude_sale_orders` does NOT return refunds, gateway, or cancellation state. For any profit report you MUST enrich each returned order with a Shopify GraphQL call. Batch by order ID:
+
+```graphql
+{
+  nodes(ids: ["gid://shopify/Order/7472379035798", ...]) {
+    ... on Order {
+      id
+      cancelledAt
+      displayFinancialStatus
+      paymentGatewayNames
+      totalRefundedSet { shopMoney { amount } }
+    }
+  }
+}
+```
+
+Map to the `shopify_enrichment` dict per order:
+
+```python
+def enrich_from_shopify_order(sh: dict) -> dict:
+    fin = (sh.get('displayFinancialStatus') or '').lower()
+    refund_total = float(
+        (sh.get('totalRefundedSet') or {}).get('shopMoney', {}).get('amount') or 0
+    )
+    gateways = sh.get('paymentGatewayNames') or []
+    return {
+        'refund_total': refund_total,
+        'gateway': gateways[0] if gateways else None,
+        'cancelled': sh.get('cancelledAt') is not None,
+        'fully_refunded': fin == 'refunded',
+    }
+```
+
+250 order IDs per GraphQL `nodes(...)` call. For a day report (~50-200 orders) this is one call per store.
+
+### Worked test cases (keep these in sync with Dale's examples)
+
+Both verified against the formula on 2026-04-22. If a future change breaks either, the change is wrong.
+
+**Test case 1 — Order #319761 (Shopify Payments, no refund):**
+
+| Field | Value |
+|---|---|
+| Sale Total (`total_order_value`) | $1,284.70 |
+| Discount | $0.00 |
+| Refund | $0.00 |
+| PO Cost (device `M-278849-1`) | $976.00 |
+| Gateway | `shopify_payments` |
+| Payment Fee | 0.9% × $1,284.70 + $0.30 = **$11.86** |
+| **True Profit** | $1,284.70 − 0 − 0 − $976.00 − $11.86 = **$296.84** |
+
+**Test case 2 — Order #318871 (PayPal, partial refund):**
+
+| Field | Value |
+|---|---|
+| Sale Total | $448.00 |
+| Discount | $0.00 |
+| Refund | $10.00 (partial) |
+| PO Cost (device `ILI06363-402855`) | $326.09 |
+| Gateway | `paypal` |
+| Payment Fee | 1.2% × $448.00 + $0.10 = **$5.48** (on original, not refunded) |
+| **True Profit** | $448.00 − $10.00 − $326.09 − $5.48 = **$106.43** |
+
+When implementing or refactoring the profit calc, run both cases against `order_profit()` and confirm the profit values match to the cent. Do not ship a change that breaks either.
 
 ### Standard true-profit report format
 
@@ -1442,7 +1613,12 @@ Tracked lines: 127 (50% of revenue) | Untracked: 383 (awaiting Shopify fallback)
   - In aggregates, include zero-cost lines but break out the count and total revenue they represent so the user can see the exposure.
   - If >5% of tracked revenue comes from zero-cost lines, the top-level summary must say so: *"⚠️ $X of tracked revenue sourced from zero-cost PO devices — margin may be overstated."*
 - **`variant_price: 0`** — unusual. Usually a free replacement or warranty. Include but note it: "N free/zero-price lines".
-- **Refunds** — `financial_status` is always `"paid"` in this response (Bubble pre-filters). For net-of-refund revenue, query Shopify directly. For gross-profit-on-paid-sales (the normal case), no refund handling is needed.
+- **Phone-class line with empty `allocated_podevices`** — Dale's rule treats no-PO lines as $0 cost / pure margin, which is correct for accessories/warranty/cables/shipping but WRONG for a phone/tablet/laptop that should have had a PO attached. This is a **data attribution gap** — the device sold but wasn't linked to the sourcing PO. Detect heuristically (on the sale-order line):
+  - `sku` starts with `APPLE-IPHONE-`, `APPLE-IPAD-`, `SAMSUNG-GALAXY-`, `APPLE-WATCH-`, `APPLE-MACBOOK-` (extend as needed from the PPT/Bubble SKU list), AND
+  - `variant_price > 100` (filters out cables/cases that happen to mention phone model names), AND
+  - `allocated_podevices` is empty.
+  Flag these in the report under "⚠️ Phone lines missing PO attribution — profit may be overstated" with order id, SKU, and variant_price. Do NOT silently fold them into the pure-margin aggregate — the "$0 cost" is a data miss, not a business reality. Observed live on 2026-04-19: 1 such order (#844118, iPhone 16 128GB @ $949). Resolution requires Bubble portal team to back-fill the PO link on the sale.
+- **Refunds** — `financial_status` is always `"paid"` in the Bubble response, but an order marked paid in Bubble may have been partially or fully refunded in Shopify after the fact. For true-profit reports you MUST enrich each order with Shopify's `totalRefundedSet`, `displayFinancialStatus`, and `cancelledAt` (see "Shopify enrichment" section). Partial refunds are subtracted from profit; full refunds and cancellations are excluded from profit and listed separately.
 
 ### Example complete call
 

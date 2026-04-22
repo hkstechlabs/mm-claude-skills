@@ -763,13 +763,57 @@ Always exclude `financial_status in (voided, pending)` from revenue. Include `pa
 | Metric | Formula | Notes |
 |--------|---------|-------|
 | **Approximate cost (Shopify-only)** | `sum(line.quantity * variant.inventoryItem.unitCost)` | Uses variant default cost — approximate, not per-unit actual |
-| **True cost (PO-attributed)** | via `bubble-analytics` → `claude_sale_orders` | Actual cost of the specific device sold |
-| **Gross profit** | `merch_total - cost` | GST-inclusive by default |
-| **Profit margin %** | `gross_profit / merch_total * 100` | Against merch, never against customer-paid |
-| **Ex-GST margin %** | `(merch_total/1.10 - cost) / (merch_total/1.10) * 100` | For "true" margin — cost is already GST-free |
+| **True cost (PO-attributed, Dale's rule)** | via `bubble-analytics` → `claude_sale_orders`: `sum(costPrice)` across `allocated_podevices` only | Actual cost of the specific device sold. Lines with no PO (accessories, warranty, shipping, cables) contribute $0 — they flow through as margin. Do NOT apply variant `unitCost` fallback for true profit. |
+| **Gross profit (approximate)** | `merch_total - cost` | Shopify-only, GST-inclusive. Excludes refunds & payment fees. |
+| **True profit (Dale's canonical formula)** | `total_order_value - refund - cost - payment_fee` | Cross-system. See `bubble-analytics` skill for the authoritative implementation and worked test cases. |
+| **Profit margin %** | `true_profit / total_order_value * 100` | Denominator is customer-paid (incl. shipping & GST) — Dale's view. |
 | **Markup %** | `(price - cost) / cost * 100` | Per-SKU, not aggregate |
 
-**Always label the source** — "Margin (Shopify unit cost, approximate)" vs "True margin (PO-attributed cost)". The two numbers will differ materially; never present as interchangeable.
+**Always label the source** — "Approximate margin (Shopify unit cost, no fees/refunds)" vs "True profit (PO-attributed cost, net of fees & refunds)". The two numbers will differ materially; never present as interchangeable. For any question about "actual" / "real" / "true" profit, route to `bubble-analytics`.
+
+### Payment gateway fees (confirmed with Dale 2026-04-22)
+
+Shopify does not report the gateway fee on the order object — it must be computed from the gateway name and the charge amount. Rate table (canonical; mirrored in `bubble-analytics` SKILL.md):
+
+| Gateway (`payment_gateway_names`) | Rate | Flat |
+|---|---|---|
+| `shopify_payments` | 0.9% | $0.30 |
+| `paypal` / `paypal_express_checkout` | 1.2% | $0.10 |
+| `afterpay` / `afterpay_australia` | 5.11% | $0.33 |
+| `zip` / `zippay` / `zipmoney` | 4.95% | $0.33 |
+
+**Fee basis** = `total_price` (customer-paid, GST-inclusive, shipping-inclusive). **Fees are NOT refunded on partial refunds** — the rate portion stays with the processor. For split-payment orders, use the **first (primary) gateway** only. Unknown gateways → mark `fee = None` and flag, never silently assume.
+
+### Shopify enrichment for true-profit (used by `bubble-analytics`)
+
+When `bubble-analytics` is computing true profit, it calls a GraphQL enrichment on each Bubble-returned order to get fields Bubble doesn't expose:
+
+```graphql
+{
+  nodes(ids: ["gid://shopify/Order/<id>", ...]) {
+    ... on Order {
+      id
+      cancelledAt
+      displayFinancialStatus
+      paymentGatewayNames
+      totalRefundedSet { shopMoney { amount } }
+    }
+  }
+}
+```
+
+Batch up to 250 IDs per call per store. One call per store per day's report is typical.
+
+### Refunds — exclusion vs subtraction
+
+| Order state | Profit treatment |
+|---|---|
+| `cancelledAt` not null | **Exclude** from profit totals. Surface in a separate "Cancelled" block. |
+| `displayFinancialStatus == 'REFUNDED'` OR refund ≥ `total_price` | **Exclude** from profit totals. Surface in a separate "Fully Refunded" block. |
+| `partially_refunded` (refund < total) | **Include**, subtract `refund_total` from profit. |
+| `paid` | **Include** as-is. |
+
+Do NOT silently drop cancelled/fully-refunded orders — Dale needs to see them separately so totals reconcile against Shopify admin exactly.
 
 ### Operational metrics
 

@@ -57,6 +57,24 @@ If the user says "sales today" or "today's purchase orders" — no ambiguity, go
 
 True gross profit per sale requires sale price (Shopify) joined with acquisition cost (Bubble PO devices). The Bubble portal workflow `claude_sale_orders` does this join server-side — each sold line item comes back with `variant_id`, `sku`, `variant_price` (sale price on the store), `quantity`, and `allocated_podevices[].costPrice`. This lives in `/bubble-analytics`. Shopify variant `unitCost` is used only as a fallback for accessories/new-stock with no PO allocation.
 
+**Canonical true-profit formula (Dale, 2026-04-22):**
+
+```
+True Profit = Sale Total − Discount − Refund − PO Cost − Payment Fee
+```
+
+- **Sale Total** = `total_order_value` (GST-incl, shipping-incl, discount already deducted)
+- **Refund** = sum of Shopify `totalRefundedSet` — partial refund subtracted; fully refunded or `cancelledAt` → order excluded from profit totals AND listed separately for reconciliation
+- **PO Cost** = `sum(allocated_podevices[].costPrice)` across the order. **PO-devices ONLY.** Lines with no allocated PO (accessories, warranty, shipping, cables) contribute $0 to cost and flow through as margin — Dale's business rule, confirmed against #319761 live data.
+- **Payment Fee** = gateway rate applied to original `total_order_value`. Primary gateway only on split-pay. Fee is NOT refunded on partial refunds.
+- **GST** is inclusive on both sides — never stripped. Margin denominator = `total_order_value`.
+
+**Golden test cases** (must reconcile to the cent on any change to the profit calc):
+- Order #319761 (OzMobiles, Shopify Payments, no refund): $1,284.70 − $976.00 − $11.86 = **$296.84**
+- Order #318871 (OzMobiles, PayPal, $10 partial refund): $448.00 − $10.00 − $326.09 − $5.48 = **$106.43**
+
+Gateway rates, refund handling, enrichment GraphQL, and the full worked implementation live in `bubble-analytics` SKILL.md under "True-profit calculation" and "Payment fees — gateway rate table".
+
 ## Stores (Shopify)
 
 - **OzMobiles** (ozmobiles.com.au) — Shopify Plus
@@ -78,9 +96,26 @@ True gross profit per sale requires sale price (Shopify) joined with acquisition
 
 ## Credentials
 
-**Preflight rule (applies to every session, every skill):** Before invoking any analytics skill or making any API call, check that `/Users/macbook162019/Documents/mm-claude-skills/.env` exists AND has non-empty values for the keys the skill needs. If the file is missing, or any required key is present-but-empty, respond with this message and stop — do NOT attempt the API call:
+**Preflight rule (applies to every session, every skill):** Before invoking any analytics skill or making any API call, run the preflight bash snippet documented in each skill's SKILL.md. The skill detects the project root automatically (via `git rev-parse --show-toplevel`, falling back to `$PWD`) — do NOT hardcode absolute paths, because the repo can be cloned anywhere.
 
-> ⚠️ **Credentials not configured.** The `.env` file is missing or has empty values. **Please request the `.env` file from Faisal (Team Lead)** and place it in the project root (`/Users/macbook162019/Documents/mm-claude-skills/.env`). Once the file is in place, try your question again.
+The preflight has three states:
+
+| Preflight result | Action |
+|---|---|
+| `OK` | Continue — proceed with the API call |
+| `CREATED_ENV_TEMPLATE` | `.env` was missing. The skill auto-copied `.env.example` → `.env` and opened it in the default editor. Show the message below and stop. |
+| `EMPTY_KEYS` | `.env` exists but required keys are blank. Open the file and show the message below. Stop. |
+| `MISSING_ENV` | Neither `.env` nor `.env.example` present (shouldn't happen on a fresh clone). Show the message and stop. |
+
+**Standard message (use verbatim) when the preflight is not `OK`:**
+
+> ⚠️ **Credentials required**
+>
+> I've opened your `.env` file. Please add the API credential values and save it.
+>
+> **If you don't have the values, ask Faisal (Team Lead).**
+>
+> Once the file is filled in, ask your question again.
 
 This fires automatically after a fresh clone, after rotating tokens, or on any new machine. Each skill's SKILL.md has a dedicated preflight-check snippet — run it first.
 
