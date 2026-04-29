@@ -49,7 +49,7 @@ Run this check at the start of every session that needs Shopify credentials:
 
 ```bash
 # Preflight — fail loudly with a clear message if .env is missing or keys empty
-ENV_FILE="/Users/macbook162019/Documents/mm-claude-skills/.env"
+ENV_FILE="/Users/macbook162019/Developer/mm-claude-skills/.env"
 if [ ! -f "$ENV_FILE" ]; then
   echo "MISSING_ENV"
 else
@@ -70,7 +70,7 @@ fi
 >
 > The `.env` file is missing or has empty values. I can't fetch any live Shopify data without valid API tokens.
 >
-> **Please request the `.env` file from Faisal (Team Lead)** and place it in the project root (`/Users/macbook162019/Documents/mm-claude-skills/.env`).
+> **Please request the `.env` file from Faisal (Team Lead)** and place it in the project root (`/Users/macbook162019/Developer/mm-claude-skills/.env`).
 >
 > Required keys:
 > - `OZMOBILES_SHOPIFY_TOKEN`, `OZMOBILES_SHOPIFY_STORE`
@@ -277,9 +277,9 @@ All requests need the `X-Shopify-Access-Token` header. Always load tokens from `
 
 ```bash
 # Load credentials from .env
-TOKEN=$(grep OZMOBILES_SHOPIFY_TOKEN /Users/macbook162019/Documents/mm-claude-skills/.env | cut -d= -f2)
-STORE=$(grep OZMOBILES_SHOPIFY_STORE /Users/macbook162019/Documents/mm-claude-skills/.env | cut -d= -f2)
-API_VER=$(grep SHOPIFY_API_VERSION /Users/macbook162019/Documents/mm-claude-skills/.env | cut -d= -f2)
+TOKEN=$(grep OZMOBILES_SHOPIFY_TOKEN /Users/macbook162019/Developer/mm-claude-skills/.env | cut -d= -f2)
+STORE=$(grep OZMOBILES_SHOPIFY_STORE /Users/macbook162019/Developer/mm-claude-skills/.env | cut -d= -f2)
+API_VER=$(grep SHOPIFY_API_VERSION /Users/macbook162019/Developer/mm-claude-skills/.env | cut -d= -f2)
 
 curl -s "https://${STORE}/admin/api/${API_VER}/{endpoint}" \
   -H "X-Shopify-Access-Token: ${TOKEN}"
@@ -880,7 +880,7 @@ When calculating revenue, always exclude `voided` and `refunded` orders. For ref
 
 - **Never guess data** -- always fetch live from the API
 - **Never expose tokens** in responses to the user -- always load from `.env`, never hardcode
-- **Always load from .env** -- use `grep` to read tokens from `/Users/macbook162019/Documents/mm-claude-skills/.env`
+- **Always load from .env** -- use `grep` to read tokens from `/Users/macbook162019/Developer/mm-claude-skills/.env`
 - **Smallest API call possible** -- use count endpoints, field filters, tight date ranges
 - **Handle 429 errors** -- wait 1-2 seconds and retry (especially for FrankMobiles at 2 req/s)
 - **Paginate only when needed** -- check count first

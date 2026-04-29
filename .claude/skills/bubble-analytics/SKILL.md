@@ -260,7 +260,7 @@ Run this check at the start of every session that needs Bubble credentials:
 
 ```bash
 # Preflight — fail loudly with a clear message if .env is missing or keys empty
-ENV_FILE="/Users/macbook162019/Documents/mm-claude-skills/.env"
+ENV_FILE="/Users/macbook162019/Developer/mm-claude-skills/.env"
 if [ ! -f "$ENV_FILE" ]; then
   echo "MISSING_ENV"
 else
@@ -280,7 +280,7 @@ fi
 >
 > The `.env` file is missing or has empty values. I can't fetch any live Bubble data without valid credentials.
 >
-> **Please request the `.env` file from Faisal (Team Lead)** and place it in the project root (`/Users/macbook162019/Documents/mm-claude-skills/.env`).
+> **Please request the `.env` file from Faisal (Team Lead)** and place it in the project root (`/Users/macbook162019/Developer/mm-claude-skills/.env`).
 >
 > Required keys:
 > - `BUBBLE_CSRF_KEY`
@@ -295,8 +295,8 @@ Do not proceed with any API call until the preflight prints `OK`.
 The CSRF key contains special characters (`>`, `?`, `[`, `{`, `;`, etc.) and MUST be URL-encoded before use, otherwise the auth will fail. Use this pattern:
 
 ```bash
-CSRF=$(grep BUBBLE_CSRF_KEY /Users/macbook162019/Documents/mm-claude-skills/.env | cut -d= -f2-)
-BASE=$(grep BUBBLE_API_BASE /Users/macbook162019/Documents/mm-claude-skills/.env | cut -d= -f2-)
+CSRF=$(grep BUBBLE_CSRF_KEY /Users/macbook162019/Developer/mm-claude-skills/.env | cut -d= -f2-)
+BASE=$(grep BUBBLE_API_BASE /Users/macbook162019/Developer/mm-claude-skills/.env | cut -d= -f2-)
 ENCODED_CSRF=$(python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "$CSRF")
 ```
 
@@ -451,8 +451,8 @@ If the filter returns zero matches, tell the user clearly and suggest close alte
 
 ```bash
 # Load credentials
-CSRF=$(grep BUBBLE_CSRF_KEY /Users/macbook162019/Documents/mm-claude-skills/.env | cut -d= -f2-)
-BASE=$(grep BUBBLE_API_BASE /Users/macbook162019/Documents/mm-claude-skills/.env | cut -d= -f2-)
+CSRF=$(grep BUBBLE_CSRF_KEY /Users/macbook162019/Developer/mm-claude-skills/.env | cut -d= -f2-)
+BASE=$(grep BUBBLE_API_BASE /Users/macbook162019/Developer/mm-claude-skills/.env | cut -d= -f2-)
 ENCODED_CSRF=$(python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "$CSRF")
 
 # Fetch PPT
@@ -981,8 +981,8 @@ Group by `selleremail` and count POs per customer.
 ### Example complete call with chunking
 
 ```bash
-CSRF=$(grep BUBBLE_CSRF_KEY /Users/macbook162019/Documents/mm-claude-skills/.env | cut -d= -f2-)
-BASE=$(grep BUBBLE_API_BASE /Users/macbook162019/Documents/mm-claude-skills/.env | cut -d= -f2-)
+CSRF=$(grep BUBBLE_CSRF_KEY /Users/macbook162019/Developer/mm-claude-skills/.env | cut -d= -f2-)
+BASE=$(grep BUBBLE_API_BASE /Users/macbook162019/Developer/mm-claude-skills/.env | cut -d= -f2-)
 ENCODED_CSRF=$(python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "$CSRF")
 
 python3 << 'PYEOF'
@@ -1623,8 +1623,8 @@ Tracked lines: 127 (50% of revenue) | Untracked: 383 (awaiting Shopify fallback)
 ### Example complete call
 
 ```bash
-CSRF=$(grep BUBBLE_CSRF_KEY /Users/macbook162019/Documents/mm-claude-skills/.env | cut -d= -f2-)
-BASE=$(grep BUBBLE_API_BASE /Users/macbook162019/Documents/mm-claude-skills/.env | cut -d= -f2-)
+CSRF=$(grep BUBBLE_CSRF_KEY /Users/macbook162019/Developer/mm-claude-skills/.env | cut -d= -f2-)
+BASE=$(grep BUBBLE_API_BASE /Users/macbook162019/Developer/mm-claude-skills/.env | cut -d= -f2-)
 ENCODED_CSRF=$(python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "$CSRF")
 
 curl -s "${BASE}/wf/claude_sale_orders?startDate=2026-04-19&endDate=2026-04-20&csrf=${ENCODED_CSRF}" \
