@@ -1803,7 +1803,7 @@ Don't call both `claude_purchase_orders` and `claude_po_devices` in a single que
 ## Endpoint: PO Device Change Logs (historical)
 
 **Workflow name:** `claude_po_device_logs`
-**Full URL:** `{BASE}/wf/claude_po_device_logs?csrf={ENCODED_CSRF}&po_device_id={PO_DEVICE_ID}`
+**Full URL:** `{BASE}/wf/claude_po_device_logs?csrf={ENCODED_CSRF}&po_device_id={PO_DEVICE_ID}[&startDate={YYYY-MM-DD}][&endDate={YYYY-MM-DD}]`
 **Purpose:** Returns an array of historical change events for a single PO device (one row per change). Use this endpoint for any question about a device's change history, status transitions, or "who/when" timeline for a specific device.
 
 ### When to use this endpoint
@@ -1815,6 +1815,15 @@ Don't call both `claude_purchase_orders` and `claude_po_devices` in a single que
 |-----------|----------|--------|-------------|
 | `csrf` | **Yes** | URL-encoded | CSRF key from `.env` (use existing encoding pattern). |
 | `po_device_id` | **Yes** | `M-XXXXXX-n` (human-readable) | Canonical PO-device id (e.g. `M-315994-1`). Pass this value directly; no extra lookup required. |
+| `startDate` | Optional | `YYYY-MM-DD` | Optional Melbourne calendar-day filter. If omitted, do not include it in the URL. If provided by itself, treat the entire selected day as the date window: from `00:00:00` through `23:59:59` for that calendar day. |
+| `endDate` | Optional | `YYYY-MM-DD` | Optional Melbourne calendar-day filter. If omitted, do not include it in the URL. If provided by itself, treat the entire selected day as the date window: from `00:00:00` through `23:59:59` for that calendar day. If both dates are present, return all logs between the two dates inclusive, using the full day for both boundaries: `startDate` from `12:00 AM` through `endDate` through `11:59 PM`. |
+
+### Date-filter behavior
+- If neither `startDate` nor `endDate` is provided: return all log data for the specified PO device and omit both parameters from the API URL.
+- If exactly one of `startDate` or `endDate` is provided: treat the provided date as the selected date and return all logs for that entire calendar day (from 12:00 AM through 11:59 PM). Include only the provided date parameter and omit the other one entirely.
+- If both dates are provided: return all logs between the two dates inclusive, using the full day for both boundaries.
+- Do not send empty-string parameters. Optional parameters are omitted entirely when they are not used.
+- Use the same `YYYY-MM-DD` date format and Melbourne-day conventions already established elsewhere in this skill; do not switch to a different timezone or date parsing convention.
 
 ### Response schema (one array item)
 ```json
@@ -1859,14 +1868,21 @@ Don't call both `claude_purchase_orders` and `claude_po_devices` in a single que
 
 ### Example usage sequence (single device)
 1. Parse and normalise the user's PO-device id using `normalise_device_id()` to canonical `M-XXXXXX-n` (accept variations like `m-123456-1` or `123456-1`).
-2. Build URL with encoded CSRF and `po_device_id` and call the workflow directly.
+2. Build the URL with encoded CSRF and `po_device_id`, then add `startDate` and/or `endDate` only when they are actually provided.
 3. If the user asked a question like "When was this device received?", scan the returned events for `field_name == 'Status'` where `new_value` equals `Received` (or looks like a Received-state), then present the `created_date` and `user` (redacted as needed).
+4. When one date is supplied, keep the entire calendar day; when both are supplied, include the full-day range at both boundaries.
 
-### Example (developer snippet)
+### Example (developer snippets)
 ```bash
-# CSRF and BASE loaded as elsewhere in this skill
+# All history for a single PO device
 ENCODED_CSRF=... # existing encoding snippet
 curl -s "${BASE}/wf/claude_po_device_logs?csrf=${ENCODED_CSRF}&po_device_id=M-315994-1"
+
+# One selected date: full calendar day for 2026-08-27
+curl -s "${BASE}/wf/claude_po_device_logs?csrf=${ENCODED_CSRF}&po_device_id=M-315994-1&startDate=2026-08-27"
+
+# Two-date range: inclusive, full-day boundaries
+curl -s "${BASE}/wf/claude_po_device_logs?csrf=${ENCODED_CSRF}&po_device_id=M-315994-1&startDate=2026-08-25&endDate=2026-08-27"
 ```
 
 ### Presentation guidance & privacy
