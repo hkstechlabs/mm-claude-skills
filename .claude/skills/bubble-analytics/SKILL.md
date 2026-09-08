@@ -1,25 +1,27 @@
 ---
 name: bubble-analytics
 description: >
-  Bubble.io portal analytics for Mobile Monster (portal.mobilemonster.com.au). Use this skill for FOUR endpoints:
-  (1) Purchase Pricing Table (PPT) lookups -- what MM pays per device by grade (Brand New, As New, Working, Faulty, Dead).
-  (2) Purchase orders / POs (customers selling devices TO MM) with IDs like M-XXXXXX -- today's POs, weekly/monthly PO
-  reports, PO lookup by ID, purchase volume, buyback pipeline status.
-  (3) Sale orders with cost -- the CROSS-SYSTEM PROFIT BRIDGE. Returns Shopify sales joined with the Bubble PO devices
-  that fulfilled them, including costPrice per device. Use this for ANY question about true profit, true gross margin,
-  cost basis per sale, sold-through rate on buyback stock, margin per SKU/brand, or "what did we pay for the devices we sold".
-  (4) PO devices direct (line-item level) -- returns individual devices flattened, with status, estsaleprice,
-  totalcostprice, soldprice, devicetype, sku. Use for ANY question about devices as units: "how many devices are Listed",
-  "total est. sale value of Listed inventory", "how many iPhones in Listed status", "cost basis of current stock",
-  single-device lookup by ID, potential margin on Listed inventory.
-  Trigger phrases: "purchase orders", "POs", "buyback", "trade-in", "M-XXXXXX", "how much do we pay for",
-  "quote for", "working/faulty/brand new price", "true profit", "real margin", "gross margin on sales", "cost basis",
-  "what did we pay for what we sold", "margin per sku", "sold-through", "PO sell through",
-  "how many devices", "Listed devices", "device status", "stock on hand", "est sale price", "potential margin",
-  "device lookup", "M-XXXXXX-n", "PO device".
-  For pure sales metrics without cost (revenue, AOV, order counts, inventory) use shopify-analytics instead.
-  If the user says just "orders" or "total orders" without specifying sales vs purchase, the assistant must ASK THE USER
-  FIRST which one they mean before invoking either skill.
+    Bubble.io portal analytics for Mobile Monster (portal.mobilemonster.com.au). Use this skill for FIVE endpoints:
+    (1) Purchase Pricing Table (PPT) lookups -- what MM pays per device by grade (Brand New, As New, Working, Faulty, Dead).
+    (2) Purchase orders / POs (customers selling devices TO MM) with IDs like M-XXXXXX -- today's POs, weekly/monthly PO
+    reports, PO lookup by ID, purchase volume, buyback pipeline status.
+    (3) Sale orders with cost -- the CROSS-SYSTEM PROFIT BRIDGE. Returns Shopify sales joined with the Bubble PO devices
+    that fulfilled them, including costPrice per device. Use this for ANY question about true profit, true gross margin,
+    cost basis per sale, sold-through rate on buyback stock, margin per SKU/brand, or "what did we pay for the devices we sold".
+    (4) PO devices direct (line-item level) -- returns individual devices flattened, with status, estsaleprice,
+    totalcostprice, soldprice, devicetype, sku. Use for ANY question about devices as units: "how many devices are Listed",
+    "total est. sale value of Listed inventory", "how many iPhones in Listed status", "cost basis of current stock",
+    single-device lookup by ID, potential margin on Listed inventory.
+    (5) PO device change logs (historical) -- per-device change events (who changed what, when). Use this for status history,
+    change history, and questions such as "when was this device received?" or "what happened to M-315994-1?".
+    Trigger phrases: "purchase orders", "POs", "buyback", "trade-in", "M-XXXXXX", "how much do we pay for",
+    "quote for", "working/faulty/brand new price", "true profit", "real margin", "gross margin on sales", "cost basis",
+    "what did we pay for what we sold", "margin per sku", "sold-through", "PO sell through",
+    "how many devices", "Listed devices", "device status", "stock on hand", "est sale price", "potential margin",
+    "device lookup", "M-XXXXXX-n", "PO device".
+    For pure sales metrics without cost (revenue, AOV, order counts, inventory) use shopify-analytics instead.
+    If the user says just "orders" or "total orders" without specifying sales vs purchase, the assistant must ASK THE USER
+    FIRST which one they mean before invoking either skill.
 ---
 
 # Mobile Monster Bubble Portal Analytics
@@ -1795,6 +1797,103 @@ The endpoint returns devices from multiple intake sources, not just customer buy
 - **Sale → Device:** `claude_sale_orders[].line_items[].allocated_podevices[].poDevice` is the same ID as `claude_po_devices[].podeviceid`.
 
 Don't call both `claude_purchase_orders` and `claude_po_devices` in a single question unless the user explicitly needs both levels — pick the endpoint that matches the granularity of the question.
+
+---
+
+## Endpoint: PO Device Change Logs (historical)
+
+**Workflow name:** `claude_po_device_logs`
+**Full URL:** `{BASE}/wf/claude_po_device_logs?csrf={ENCODED_CSRF}&po_device_id={PO_DEVICE_ID}[&startDate={YYYY-MM-DD}][&endDate={YYYY-MM-DD}]`
+**Purpose:** Returns an array of historical change events for a single PO device (one row per change). Use this endpoint for any question about a device's change history, status transitions, or "who/when" timeline for a specific device.
+
+### When to use this endpoint
+- Questions about historical changes, logs, or status history for a specific device (examples below).
+- Questions that ask "When was M-315994-1 received?" or "What happened to M-315994-1?" — use the logs to find the status transition event and its timestamp.
+
+### Request parameters
+| Parameter | Required | Format | Description |
+|-----------|----------|--------|-------------|
+| `csrf` | **Yes** | URL-encoded | CSRF key from `.env` (use existing encoding pattern). |
+| `po_device_id` | **Yes** | `M-XXXXXX-n` (human-readable) | Canonical PO-device id (e.g. `M-315994-1`). Pass this value directly; no extra lookup required. |
+| `startDate` | Optional | `YYYY-MM-DD` | Optional Melbourne calendar-day filter. If omitted, do not include it in the URL. If provided by itself, treat the entire selected day as the date window: from `00:00:00` through `23:59:59` for that calendar day. |
+| `endDate` | Optional | `YYYY-MM-DD` | Optional Melbourne calendar-day filter. If omitted, do not include it in the URL. If provided by itself, treat the entire selected day as the date window: from `00:00:00` through `23:59:59` for that calendar day. If both dates are present, return all logs between the two dates inclusive, using the full day for both boundaries: `startDate` from `12:00 AM` through `endDate` through `11:59 PM`. |
+
+### Date-filter behavior
+- If neither `startDate` nor `endDate` is provided: return all log data for the specified PO device and omit both parameters from the API URL.
+- If exactly one of `startDate` or `endDate` is provided: treat the provided date as the selected date and return all logs for that entire calendar day (from 12:00 AM through 11:59 PM). Include only the provided date parameter and omit the other one entirely.
+- If both dates are provided: return all logs between the two dates inclusive, using the full day for both boundaries.
+- Do not send empty-string parameters. Optional parameters are omitted entirely when they are not used.
+- Use the same `YYYY-MM-DD` date format and Melbourne-day conventions already established elsewhere in this skill; do not switch to a different timezone or date parsing convention.
+
+### Response schema (one array item)
+```json
+{
+    "user": "HKS TechLabs",
+    "field_name": "Status",
+    "new_value": "Repair in store - HKS2",
+    "old_value": "Awaiting Delivery",
+    "item_uid": "...",
+    "created_date": "2026-08-27T09:30:00Z"
+}
+```
+
+### Response field reference
+| Field | Type | Description |
+|-------|------|-------------|
+| `user` | string | Actor who made the change. May be an operator label — treat as potentially sensitive and redact if not explicitly requested. |
+| `field_name` | string | The attribute that changed (e.g. `Status`, `officailofferprice`). Use verbatim for auditing. |
+| `old_value` | string | Prior value before the change. |
+| `new_value` | string | New value after the change. |
+| `item_uid` | string | Internal identifier for the log item; for engineering tracing only. Do not surface unless asked. |
+| `created_date` | string | ISO 8601 UTC timestamp (e.g. `2026-08-27T09:30:00Z`). Convert to Melbourne local time using the skill's existing timezone helpers before presenting to users. |
+
+### How to interpret a log record
+- `field_name`: which field was updated.
+- `old_value` -> `new_value`: the value transition applied at the event.
+- `created_date`: when the change occurred — present in Melbourne local time and include the fetch timestamp in responses.
+- `user`: who performed the change — treat as an operator/role and avoid PII unless permitted.
+- `item_uid`: internal audit id; do not expose by default.
+
+### Routing rules (clear decision rule)
+- For current device attributes or a snapshot (status, estsaleprice, totalcostprice, saleordernumber), continue using `claude_po_devices` (the existing device endpoint).
+- For historical questions (change history, status timeline, "when was X received", "what happened to X"), call `claude_po_device_logs` directly with the human-readable `po_device_id`.
+- Do NOT infer history from the current `status` alone when the user explicitly asks about timing or prior states — use the logs endpoint.
+
+### Natural-language triggers to recognise
+- "Show me the logs for M-315994-1"
+- "Show me the change history for M-315994-1"
+- "When was M-315994-1 received?"
+- "What happened to M-315994-1?"
+- "Show me the status history for M-315994-1"
+
+### Example usage sequence (single device)
+1. Parse and normalise the user's PO-device id using `normalise_device_id()` to canonical `M-XXXXXX-n` (accept variations like `m-123456-1` or `123456-1`).
+2. Build the URL with encoded CSRF and `po_device_id`, then add `startDate` and/or `endDate` only when they are actually provided.
+3. If the user asked a question like "When was this device received?", scan the returned events for `field_name == 'Status'` where `new_value` equals `Received` (or looks like a Received-state), then present the `created_date` and `user` (redacted as needed).
+4. When one date is supplied, keep the entire calendar day; when both are supplied, include the full-day range at both boundaries.
+
+### Example (developer snippets)
+```bash
+# All history for a single PO device
+ENCODED_CSRF=... # existing encoding snippet
+curl -s "${BASE}/wf/claude_po_device_logs?csrf=${ENCODED_CSRF}&po_device_id=M-315994-1"
+
+# One selected date: full calendar day for 2026-08-27
+curl -s "${BASE}/wf/claude_po_device_logs?csrf=${ENCODED_CSRF}&po_device_id=M-315994-1&startDate=2026-08-27"
+
+# Two-date range: inclusive, full-day boundaries
+curl -s "${BASE}/wf/claude_po_device_logs?csrf=${ENCODED_CSRF}&po_device_id=M-315994-1&startDate=2026-08-25&endDate=2026-08-27"
+```
+
+### Presentation guidance & privacy
+- Present each log entry as a short human sentence: "2026-08-27 09:30 — HKS TechLabs changed Status from 'Awaiting Delivery' to 'Repair in store - HKS2'."
+- Redact or anonymise `user` unless the user explicitly requests operator names and is authorised.
+- Never show CSRF, raw workflow URLs, or internal-only identifiers (e.g. `item_uid`) in user-facing text unless asked and permitted.
+
+### Multi-device / PO workflows
+- If the user asks for logs for every device in a PO, first fetch the PO via `claude_purchase_orders?poId=M-XXXXX` (fast path) or `claude_po_devices` to list device ids, then call `claude_po_device_logs` for each `podeviceid` found. Parallelise with a small concurrency limit and present results per device.
+
+---
 
 ### Common use patterns
 
