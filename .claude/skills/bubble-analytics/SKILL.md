@@ -1840,12 +1840,15 @@ Don't call both `claude_purchase_orders` and `claude_po_devices` in a single que
 ### Response field reference
 | Field | Type | Description |
 |-------|------|-------------|
-| `user` | string | Actor who made the change. May be an operator label — treat as potentially sensitive and redact if not explicitly requested. |
+| `user` | string | Actor who made the change. **Often empty (`""`)** for system/automatic field-sets — a blank `user` means "set automatically", not "unknown person". May be a real operator name (PII) — treat as potentially sensitive and redact if not explicitly requested. |
 | `field_name` | string | The attribute that changed (e.g. `Status`, `officailofferprice`). Use verbatim for auditing. |
-| `old_value` | string | Prior value before the change. |
+| `old_value` | string | Prior value before the change. **Empty (`""`) on the initial set** of a field (device creation) — that is a first-set, not a real "changed from nothing" transition. |
 | `new_value` | string | New value after the change. |
 | `item_uid` | string | Internal identifier for the log item; for engineering tracing only. Do not surface unless asked. |
 | `created_date` | string | ISO 8601 UTC timestamp (e.g. `2026-08-27T09:30:00Z`). Convert to Melbourne local time using the skill's existing timezone helpers before presenting to users. |
+
+### Parsing note (important)
+The Bubble response can contain **raw, unescaped control characters** (e.g. a newline or tab inside a value), which makes a **strict JSON parse fail** with "Invalid control character". Parse leniently: use `json.loads(raw, strict=False)` in Python (or strip control chars before parsing). Do not treat a control-character parse error as "no data" — retry the parse leniently first. Verified live 2026-09-07 on `M-315994-1`.
 
 ### How to interpret a log record
 - `field_name`: which field was updated.
